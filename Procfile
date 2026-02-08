@@ -1,1 +1,1 @@
-web: gunicorn backend.wsgi --log-file - --timeout 120 --keep-alive 5 --max-requests 1000
+web: gunicorn backend.wsgi --log-file - --timeout 300 --keep-alive 10 --max-requests 1000

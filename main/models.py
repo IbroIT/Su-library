@@ -8,8 +8,8 @@ from django.core.exceptions import ValidationError
 def validate_pdf_file_size(value):
     """Валидация размера PDF файла"""
     filesize = value.size
-    if filesize > 50 * 1024 * 1024:  # 50 MB
-        raise ValidationError(_('PDF файл не должен превышать 50 MB'))
+    if filesize > 260 * 1024 * 1024:  # 260 MB
+        raise ValidationError(_('PDF файл не должен превышать 260 MB'))
     return value
 
 
