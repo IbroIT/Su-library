@@ -180,8 +180,8 @@ else:
 
 # File upload limits
 # Увеличиваем лимиты для загрузки больших PDF файлов
-DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 600 * 1024 * 1024  # 600 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 600 * 1024 * 1024  # 600 MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 2000  # Увеличиваем количество полей
 
 # Default primary key field type
