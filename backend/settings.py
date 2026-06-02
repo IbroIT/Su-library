@@ -14,6 +14,11 @@ import dj_database_url
 from decouple import config, Csv
 from pathlib import Path
 from datetime import timedelta
+from typing import Any
+
+from .django_compat import patch_template_context_copy
+
+patch_template_context_copy()
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),   # access живёт 24 часа
@@ -110,7 +115,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 # По умолчанию SQLite для локальной разработки
-DATABASES = {
+DATABASES: dict[str, dict[str, Any]] = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',

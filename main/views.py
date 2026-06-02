@@ -1,5 +1,4 @@
 # main/views.py
-import os
 import zipfile
 from io import BytesIO
 
@@ -9,7 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Book, Category
-from .serializers import BookSerializer, CategorySerializer
+from .serializers import BookDetailSerializer, BookListSerializer, CategorySerializer
 from django.http import Http404, FileResponse
 
 
@@ -22,12 +21,15 @@ class StandardResultsSetPagination(pagination.PageNumberPagination):
 
 class BookListView(generics.ListAPIView):
     permission_classes = [AllowAny]
-    serializer_class = BookSerializer
+    serializer_class = BookListSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['category', 'year']
         
-    def get_queryset(self):
-        return Book.objects.filter(is_active=True).select_related('category').prefetch_related('translations')
+    def get_queryset(self): # type: ignore
+        return Book.objects.filter(is_active=True).select_related('category').prefetch_related(
+            'translations',
+            'category__translations',
+        )
     
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -43,11 +45,27 @@ class BookListView(generics.ListAPIView):
         )
         return Response(serializer.data)
 
+
+class BookDetailView(generics.RetrieveAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = BookDetailSerializer
+
+    def get_queryset(self): # type: ignore
+        return Book.objects.filter(is_active=True).select_related('category').prefetch_related(
+            'translations',
+            'category__translations',
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['language'] = self.request.GET.get('language', 'ru')
+        return context
+
 class CategoryListView(generics.ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = CategorySerializer
     
-    def get_queryset(self):
+    def get_queryset(self): # type: ignore
         return Category.objects.prefetch_related('translations')
     
     def list(self, request, *args, **kwargs):
@@ -71,14 +89,14 @@ class BookOnlyListAPIView(APIView):
         except Book.DoesNotExist:
             raise Http404
 
-        if not book.file:
+        if not book.pdf_file:
             raise Http404
 
-        file_path = book.file.path
+        file_path = book.pdf_file.path
 
         # Если это обычный PDF — отдаём напрямую
         if file_path.endswith(".pdf"):
-            return FileResponse(open(file_path, 'rb'), filename=book.file.name)
+            return FileResponse(open(file_path, 'rb'), filename=book.pdf_file.name)
 
         # Если это ZIP — извлекаем PDF в памяти
         if file_path.endswith(".zip"):
