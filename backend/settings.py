@@ -23,6 +23,19 @@ SIMPLE_JWT = {
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def get_bool_config(name, default=False):
+    value = config(name, default=default)
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+    if normalized in ('1', 'true', 'yes', 'on'):
+        return True
+    if normalized in ('0', 'false', 'no', 'off'):
+        return False
+    return default
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -30,9 +43,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-x@+#o6)za8rtb7lv!cd+y5+f*k11&jl*pqd$7dum%nkxx%pq2z')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+LOCAL_DEV = get_bool_config('LOCAL_DEV', default=False)
+DEBUG = get_bool_config('DEBUG', default=LOCAL_DEV)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,su-library-back-d2d8d21af2e4.herokuapp.com', cast=Csv())
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 # Application definition
 
@@ -104,7 +118,7 @@ DATABASES = {
 }
 
 # На Heroku используем PostgreSQL
-if 'DATABASE_URL' in os.environ:
+if not LOCAL_DEV and 'DATABASE_URL' in os.environ:
     DATABASES['default'] = dj_database_url.config(
         conn_max_age=600,
         conn_health_checks=True,
@@ -192,7 +206,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS settings
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://127.0.0.1:5173,http://su-library.com,https://su-library.com,https://su-e-library.vercel.app',
+    default='http://localhost:5173,http://127.0.0.1:5173',
     cast=Csv()
 )
 
