@@ -82,26 +82,36 @@ class CategoryListView(generics.ListAPIView):
 
 
 class BookOnlyListAPIView(APIView):
+    permission_classes = [AllowAny]
 
     def get(self, request, pk):
         try:
-            book = Book.objects.get(pk=pk)
+            book = Book.objects.get(pk=pk, is_active=True)
         except Book.DoesNotExist:
             raise Http404
 
         if not book.pdf_file:
             raise Http404
 
-        file_path = book.pdf_file.path
+        file_name = book.pdf_file.name.lower()
 
         # Если это обычный PDF — отдаём напрямую
-        if file_path.endswith(".pdf"):
-            return FileResponse(open(file_path, 'rb'), filename=book.pdf_file.name)
+        if file_name.endswith(".pdf"):
+            book.pdf_file.open('rb')
+            response = FileResponse(
+                book.pdf_file,
+                filename=book.pdf_file.name.rsplit('/', 1)[-1],
+                content_type='application/pdf',
+            )
+            response['Cache-Control'] = 'public, max-age=86400'
+            response['Accept-Ranges'] = 'bytes'
+            return response
 
         # Если это ZIP — извлекаем PDF в памяти
-        if file_path.endswith(".zip"):
+        if file_name.endswith(".zip"):
             try:
-                with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                book.pdf_file.open('rb')
+                with zipfile.ZipFile(BytesIO(book.pdf_file.read()), 'r') as zip_ref:
                     pdf_files = [f for f in zip_ref.namelist() if f.lower().endswith(".pdf")]
 
                     if len(pdf_files) != 1:
@@ -111,7 +121,14 @@ class BookOnlyListAPIView(APIView):
                     pdf_data = zip_ref.read(pdf_name)  # читаем PDF в память
                     pdf_file_like = BytesIO(pdf_data)
 
-                    return FileResponse(pdf_file_like, filename=pdf_name)
+                    response = FileResponse(
+                        pdf_file_like,
+                        filename=pdf_name.rsplit('/', 1)[-1],
+                        content_type='application/pdf',
+                    )
+                    response['Cache-Control'] = 'public, max-age=86400'
+                    response['Accept-Ranges'] = 'bytes'
+                    return response
 
             except zipfile.BadZipFile:
                 raise Http404("Invalid zip archive")

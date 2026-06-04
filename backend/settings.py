@@ -122,9 +122,13 @@ DATABASES: dict[str, dict[str, Any]] = {
     }
 }
 
-# На Heroku используем PostgreSQL
-if not LOCAL_DEV and 'DATABASE_URL' in os.environ:
+DATABASE_URL = config('DATABASE_URL', default='')
+USE_POSTGRES = get_bool_config('USE_POSTGRES', default=bool(DATABASE_URL))
+
+# Если DATABASE_URL задан в .env или переменных окружения, используем PostgreSQL.
+if USE_POSTGRES and DATABASE_URL:
     DATABASES['default'] = dj_database_url.config(
+        default=DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
     )
