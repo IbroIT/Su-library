@@ -1,5 +1,4 @@
 # main/views.py
-import os
 import zipfile
 from io import BytesIO
 
@@ -9,7 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Book, Category
-from .serializers import BookSerializer, CategorySerializer
+from .serializers import BookDetailSerializer, BookListSerializer, CategorySerializer
 from django.http import Http404, FileResponse
 
 
@@ -22,12 +21,15 @@ class StandardResultsSetPagination(pagination.PageNumberPagination):
 
 class BookListView(generics.ListAPIView):
     permission_classes = [AllowAny]
-    serializer_class = BookSerializer
+    serializer_class = BookListSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['category', 'year']
         
-    def get_queryset(self):
-        return Book.objects.filter(is_active=True).select_related('category').prefetch_related('translations')
+    def get_queryset(self): # type: ignore
+        return Book.objects.filter(is_active=True).select_related('category').prefetch_related(
+            'translations',
+            'category__translations',
+        )
     
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -43,11 +45,27 @@ class BookListView(generics.ListAPIView):
         )
         return Response(serializer.data)
 
+
+class BookDetailView(generics.RetrieveAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = BookDetailSerializer
+
+    def get_queryset(self): # type: ignore
+        return Book.objects.filter(is_active=True).select_related('category').prefetch_related(
+            'translations',
+            'category__translations',
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['language'] = self.request.GET.get('language', 'ru')
+        return context
+
 class CategoryListView(generics.ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = CategorySerializer
     
-    def get_queryset(self):
+    def get_queryset(self): # type: ignore
         return Category.objects.prefetch_related('translations')
     
     def list(self, request, *args, **kwargs):
@@ -64,26 +82,36 @@ class CategoryListView(generics.ListAPIView):
 
 
 class BookOnlyListAPIView(APIView):
+    permission_classes = [AllowAny]
 
     def get(self, request, pk):
         try:
-            book = Book.objects.get(pk=pk)
+            book = Book.objects.get(pk=pk, is_active=True)
         except Book.DoesNotExist:
             raise Http404
 
-        if not book.file:
+        if not book.pdf_file:
             raise Http404
 
-        file_path = book.file.path
+        file_name = book.pdf_file.name.lower()
 
         # Если это обычный PDF — отдаём напрямую
-        if file_path.endswith(".pdf"):
-            return FileResponse(open(file_path, 'rb'), filename=book.file.name)
+        if file_name.endswith(".pdf"):
+            book.pdf_file.open('rb')
+            response = FileResponse(
+                book.pdf_file,
+                filename=book.pdf_file.name.rsplit('/', 1)[-1],
+                content_type='application/pdf',
+            )
+            response['Cache-Control'] = 'public, max-age=86400'
+            response['Accept-Ranges'] = 'bytes'
+            return response
 
         # Если это ZIP — извлекаем PDF в памяти
-        if file_path.endswith(".zip"):
+        if file_name.endswith(".zip"):
             try:
-                with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                book.pdf_file.open('rb')
+                with zipfile.ZipFile(BytesIO(book.pdf_file.read()), 'r') as zip_ref:
                     pdf_files = [f for f in zip_ref.namelist() if f.lower().endswith(".pdf")]
 
                     if len(pdf_files) != 1:
@@ -93,7 +121,14 @@ class BookOnlyListAPIView(APIView):
                     pdf_data = zip_ref.read(pdf_name)  # читаем PDF в память
                     pdf_file_like = BytesIO(pdf_data)
 
-                    return FileResponse(pdf_file_like, filename=pdf_name)
+                    response = FileResponse(
+                        pdf_file_like,
+                        filename=pdf_name.rsplit('/', 1)[-1],
+                        content_type='application/pdf',
+                    )
+                    response['Cache-Control'] = 'public, max-age=86400'
+                    response['Accept-Ranges'] = 'bytes'
+                    return response
 
             except zipfile.BadZipFile:
                 raise Http404("Invalid zip archive")

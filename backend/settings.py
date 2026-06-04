@@ -14,6 +14,11 @@ import dj_database_url
 from decouple import config, Csv
 from pathlib import Path
 from datetime import timedelta
+from typing import Any
+
+from .django_compat import patch_template_context_copy
+
+patch_template_context_copy()
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),   # access живёт 24 часа
@@ -23,6 +28,19 @@ SIMPLE_JWT = {
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def get_bool_config(name, default=False):
+    value = config(name, default=default)
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+    if normalized in ('1', 'true', 'yes', 'on'):
+        return True
+    if normalized in ('0', 'false', 'no', 'off'):
+        return False
+    return default
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -30,9 +48,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-x@+#o6)za8rtb7lv!cd+y5+f*k11&jl*pqd$7dum%nkxx%pq2z')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+LOCAL_DEV = get_bool_config('LOCAL_DEV', default=False)
+DEBUG = get_bool_config('DEBUG', default=LOCAL_DEV)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,su-library-back-d2d8d21af2e4.herokuapp.com', cast=Csv())
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 # Application definition
 
@@ -96,16 +115,20 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 # По умолчанию SQLite для локальной разработки
-DATABASES = {
+DATABASES: dict[str, dict[str, Any]] = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
-# На Heroku используем PostgreSQL
-if 'DATABASE_URL' in os.environ:
+DATABASE_URL = config('DATABASE_URL', default='')
+USE_POSTGRES = get_bool_config('USE_POSTGRES', default=bool(DATABASE_URL))
+
+# Если DATABASE_URL задан в .env или переменных окружения, используем PostgreSQL.
+if USE_POSTGRES and DATABASE_URL:
     DATABASES['default'] = dj_database_url.config(
+        default=DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
     )
@@ -192,7 +215,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS settings
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://127.0.0.1:5173,http://su-library.com,https://su-library.com,https://su-e-library.vercel.app',
+    default='http://localhost:5173,http://127.0.0.1:5173',
     cast=Csv()
 )
 

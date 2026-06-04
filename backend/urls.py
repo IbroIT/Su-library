@@ -10,5 +10,6 @@ urlpatterns = [
     path('api/', include('users.urls')),  # добавляем urls из приложения users
 ]
 
-# ОБЯЗАТЕЛЬНО добавляем это даже в DEBUG режиме
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Локальные media-роуты нужны только при файловом storage.
+if not settings.USE_SPACES:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

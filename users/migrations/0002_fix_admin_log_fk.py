@@ -1,17 +1,12 @@
 from django.db import migrations
 
 
-class Migration(migrations.Migration):
+def fix_admin_log_fk(apps, schema_editor):
+    if schema_editor.connection.vendor != "postgresql":
+        return
 
-    initial = False
-
-    dependencies = [
-        ("users", "0001_initial"),
-    ]
-
-    operations = [
-        migrations.RunSQL(
-            sql=r"""
+    schema_editor.execute(
+        r"""
 DO $$
 DECLARE
     conname text;
@@ -49,7 +44,18 @@ BEGIN
         NULL;
     END;
 END$$;
-""",
-            reverse_sql=None,
-        ),
+"""
+    )
+
+
+class Migration(migrations.Migration):
+
+    initial = False
+
+    dependencies = [
+        ("users", "0001_initial"),
+    ]
+
+    operations = [
+        migrations.RunPython(fix_admin_log_fk, migrations.RunPython.noop),
     ]
