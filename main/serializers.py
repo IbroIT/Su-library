@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.conf import settings
+from django.urls import reverse
 
 from .models import Book, BookTranslation, Category, CategoryTranslation
 
@@ -102,6 +104,11 @@ class BookDetailSerializer(BookBaseSerializer):
         ]
 
     def get_pdf_file_url(self, obj):
+        if not getattr(settings, 'USE_SPACES', False):
+            request = self.context.get('request')
+            url = reverse('main:book-file', args=[obj.pk])
+            return request.build_absolute_uri(url) if request else f"http://localhost:8000{url}"
+
         return self._build_absolute_url(obj.pdf_file)
 
 
