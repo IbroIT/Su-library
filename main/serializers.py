@@ -107,19 +107,29 @@ class BookListSerializer(BookBaseSerializer):
 class BookDetailSerializer(BookBaseSerializer):
     translations = BookTranslationSerializer(many=True, read_only=True)
     pdf_file_url = serializers.SerializerMethodField()
+    pdf_file_size = serializers.SerializerMethodField()
 
     class Meta:
         model = Book
         fields = [
             'id', 'category', 'category_name',
             'year', 'cover_image', 'cover_image_url',
-            'pdf_file', 'pdf_file_url',
+            'pdf_file', 'pdf_file_url', 'pdf_file_size',
             'title', 'author', 'description',
             'is_active', 'created_at', 'translations',
         ]
 
     def get_pdf_file_url(self, obj):
         return self._build_book_reader_url(obj)
+
+    def get_pdf_file_size(self, obj):
+        if not obj.pdf_file:
+            return None
+
+        try:
+            return obj.pdf_file.size
+        except (OSError, ValueError):
+            return None
 
 
 BookSerializer = BookListSerializer

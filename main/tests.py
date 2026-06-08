@@ -60,7 +60,9 @@ class BookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['id'], self.book.pk)
         self.assertIn('pdf_file_url', response.data)
+        self.assertIn('pdf_file_size', response.data)
         self.assertIn(f'/api/book-file/{self.book.pk}/', response.data['pdf_file_url'])
+        self.assertGreater(response.data['pdf_file_size'], 0)
 
     def test_book_file_endpoint_returns_pdf_stream(self):
         response = self.client.get(f'/api/book-file/{self.book.pk}/')
