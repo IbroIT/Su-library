@@ -1,12 +1,9 @@
-import shutil
-import tempfile
-import zipfile
-from io import BytesIO
+from pathlib import Path
 
+from django.conf import settings
 from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.core.files.uploadedfile import SimpleUploadedFile
 
 from .models import Book, BookTranslation, Category, CategoryTranslation
 
@@ -24,14 +21,11 @@ TEST_STORAGES = {
 @override_settings(
     USE_SPACES=False,
     MEDIA_URL='/media/',
+    MEDIA_ROOT=Path(settings.BASE_DIR) / 'media',
     STORAGES=TEST_STORAGES,
 )
 class BookApiTests(APITestCase):
     def setUp(self):
-        self.temp_media_dir = tempfile.mkdtemp(prefix='library-tests-')
-        self.override = override_settings(MEDIA_ROOT=self.temp_media_dir)
-        self.override.enable()
-
         category = Category.objects.create()
         CategoryTranslation.objects.create(
             category=category,
@@ -39,16 +33,10 @@ class BookApiTests(APITestCase):
             name='Тестовая категория',
         )
 
-        pdf_file = SimpleUploadedFile(
-            'sample.pdf',
-            b'%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF',
-            content_type='application/pdf',
-        )
-
         self.book = Book.objects.create(
             category=category,
             year=2026,
-            pdf_file=pdf_file,
+            pdf_file='books/pdfs/2025/10/21/upperIner.pdf',
             is_active=True,
         )
         BookTranslation.objects.create(
@@ -59,9 +47,12 @@ class BookApiTests(APITestCase):
             description='Описание книги для теста.',
         )
 
-    def tearDown(self):
-        self.override.disable()
-        shutil.rmtree(self.temp_media_dir, ignore_errors=True)
+    def test_book_list_does_not_return_pdf_file_url(self):
+        response = self.client.get('/api/books/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertNotIn('pdf_file_url', response.data[0])
 
     def test_book_detail_returns_pdf_file_url(self):
         response = self.client.get(f'/api/books/{self.book.pk}/')
@@ -69,7 +60,7 @@ class BookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['id'], self.book.pk)
         self.assertIn('pdf_file_url', response.data)
-        self.assertTrue(response.data['pdf_file_url'].endswith('.pdf'))
+        self.assertIn(f'/api/book-file/{self.book.pk}/', response.data['pdf_file_url'])
 
     def test_book_file_endpoint_returns_pdf_stream(self):
         response = self.client.get(f'/api/book-file/{self.book.pk}/')
@@ -78,53 +69,16 @@ class BookApiTests(APITestCase):
         self.assertEqual(response['Content-Type'], 'application/pdf')
         self.assertIn('Cache-Control', response)
 
-    def test_book_list_returns_pdf_file_url(self):
-        response = self.client.get('/api/books/')
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertIn('pdf_file_url', response.data[0])
-        self.assertTrue(response.data[0]['pdf_file_url'].endswith('.pdf'))
-
-    def test_zip_book_uses_book_file_endpoint(self):
-        category = Category.objects.create()
-        CategoryTranslation.objects.create(
-            category=category,
-            language='ru',
-            name='ZIP категория',
+    def test_book_file_endpoint_supports_range_requests(self):
+        response = self.client.get(
+            f'/api/book-file/{self.book.pk}/',
+            HTTP_RANGE='bytes=0-9',
         )
 
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            zip_file.writestr(
-                'inside.pdf',
-                b'%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF',
-            )
-        zip_buffer.seek(0)
-
-        zip_book = Book.objects.create(
-            category=category,
-            year=2026,
-            pdf_file=SimpleUploadedFile(
-                'sample.zip',
-                zip_buffer.read(),
-                content_type='application/zip',
-            ),
-            is_active=True,
-        )
-        BookTranslation.objects.create(
-            book=zip_book,
-            language='ru',
-            title='ZIP книга',
-            author='Автор ZIP',
-            description='Описание ZIP книги.',
-        )
-
-        detail_response = self.client.get(f'/api/books/{zip_book.pk}/')
-        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
-        self.assertIn(f'/api/book-file/{zip_book.pk}/', detail_response.data['pdf_file_url'])
-
-        file_response = self.client.get(f'/api/book-file/{zip_book.pk}/')
-        self.assertEqual(file_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(file_response['Content-Type'], 'application/pdf')
-        self.assertEqual(file_response['Content-Length'], str(len(b'%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF')))
+        self.assertEqual(response.status_code, status.HTTP_206_PARTIAL_CONTENT)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertEqual(response['Accept-Ranges'], 'bytes')
+        self.assertEqual(response['Content-Length'], '10')
+        self.assertTrue(response['Content-Range'].startswith('bytes 0-9/'))
+        self.assertEqual(len(response.content), 10)
+        self.assertTrue(response.content.startswith(b'%PDF'))

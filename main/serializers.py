@@ -1,5 +1,6 @@
-from rest_framework import serializers
+from django.conf import settings
 from django.urls import reverse
+from rest_framework import serializers
 
 from .models import Book, BookTranslation, Category, CategoryTranslation
 
@@ -54,15 +55,18 @@ class BookBaseSerializer(serializers.ModelSerializer):
         url = file_field.url
         return request.build_absolute_uri(url) if request else f"http://localhost:8000{url}"
 
+    def _build_book_file_endpoint_url(self, obj):
+        request = self.context.get('request')
+        url = reverse('main:book-file', args=[obj.pk])
+        return request.build_absolute_uri(url) if request else f"http://localhost:8000{url}"
+
     def _build_book_reader_url(self, obj):
         if not obj.pdf_file:
             return None
 
         file_name = obj.pdf_file.name.lower()
-        if file_name.endswith('.zip'):
-            request = self.context.get('request')
-            url = reverse('main:book-file', kwargs={'pk': obj.pk})
-            return request.build_absolute_uri(url) if request else f"http://localhost:8000{url}"
+        if not getattr(settings, 'USE_SPACES', False) or file_name.endswith('.zip'):
+            return self._build_book_file_endpoint_url(obj)
 
         return self._build_absolute_url(obj.pdf_file)
 
@@ -90,20 +94,14 @@ class BookBaseSerializer(serializers.ModelSerializer):
 
 
 class BookListSerializer(BookBaseSerializer):
-    pdf_file_url = serializers.SerializerMethodField()
-
     class Meta:
         model = Book
         fields = [
             'id', 'category', 'category_name',
             'year', 'cover_image', 'cover_image_url',
-            'pdf_file_url',
             'title', 'author', 'description',
             'is_active', 'created_at',
         ]
-
-    def get_pdf_file_url(self, obj):
-        return self._build_book_reader_url(obj)
 
 
 class BookDetailSerializer(BookBaseSerializer):
