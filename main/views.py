@@ -10,6 +10,28 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import Book, Category
 from .serializers import BookDetailSerializer, BookListSerializer, CategorySerializer
 from django.http import Http404, FileResponse
+from django.shortcuts import redirect
+from django.conf import settings
+
+
+class ZipPdfFileWrapper:
+    """Держит zip-архив открытым, пока FileResponse дочитывает PDF."""
+
+    def __init__(self, zip_file, pdf_stream):
+        self.zip_file = zip_file
+        self.pdf_stream = pdf_stream
+
+    def read(self, *args, **kwargs):
+        return self.pdf_stream.read(*args, **kwargs)
+
+    def seekable(self):
+        return False
+
+    def close(self):
+        try:
+            self.pdf_stream.close()
+        finally:
+            self.zip_file.close()
 
 
 
@@ -97,6 +119,9 @@ class BookOnlyListAPIView(APIView):
 
         # Если это обычный PDF — отдаём напрямую
         if file_name.endswith(".pdf"):
+            if settings.USE_SPACES:
+                return redirect(book.pdf_file.url)
+
             book.pdf_file.open('rb')
             response = FileResponse(
                 book.pdf_file,
@@ -111,24 +136,26 @@ class BookOnlyListAPIView(APIView):
         if file_name.endswith(".zip"):
             try:
                 book.pdf_file.open('rb')
-                with zipfile.ZipFile(BytesIO(book.pdf_file.read()), 'r') as zip_ref:
-                    pdf_files = [f for f in zip_ref.namelist() if f.lower().endswith(".pdf")]
+                zip_ref = zipfile.ZipFile(book.pdf_file, 'r')
+                pdf_infos = [
+                    info for info in zip_ref.infolist()
+                    if info.filename.lower().endswith(".pdf")
+                ]
 
-                    if len(pdf_files) != 1:
-                        raise Http404("Archive must contain exactly one PDF")
+                if len(pdf_infos) != 1:
+                    zip_ref.close()
+                    raise Http404("Archive must contain exactly one PDF")
 
-                    pdf_name = pdf_files[0]
-                    pdf_data = zip_ref.read(pdf_name)  # читаем PDF в память
-                    pdf_file_like = BytesIO(pdf_data)
-
-                    response = FileResponse(
-                        pdf_file_like,
-                        filename=pdf_name.rsplit('/', 1)[-1],
-                        content_type='application/pdf',
-                    )
-                    response['Cache-Control'] = 'public, max-age=86400'
-                    response['Accept-Ranges'] = 'bytes'
-                    return response
+                pdf_info = pdf_infos[0]
+                pdf_stream = zip_ref.open(pdf_info, 'r')
+                response = FileResponse(
+                    ZipPdfFileWrapper(zip_ref, pdf_stream),
+                    filename=pdf_info.filename.rsplit('/', 1)[-1],
+                    content_type='application/pdf',
+                )
+                response['Cache-Control'] = 'public, max-age=86400'
+                response['Content-Length'] = str(pdf_info.file_size)
+                return response
 
             except zipfile.BadZipFile:
                 raise Http404("Invalid zip archive")
