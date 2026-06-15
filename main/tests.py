@@ -80,7 +80,26 @@ class BookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_206_PARTIAL_CONTENT)
         self.assertEqual(response['Content-Type'], 'application/pdf')
         self.assertEqual(response['Accept-Ranges'], 'bytes')
+        self.assertNotIn('Location', response)
         self.assertEqual(response['Content-Length'], '10')
         self.assertTrue(response['Content-Range'].startswith('bytes 0-9/'))
         self.assertEqual(len(response.content), 10)
         self.assertTrue(response.content.startswith(b'%PDF'))
+
+    @override_settings(USE_SPACES=True)
+    def test_book_detail_keeps_proxy_url_when_spaces_enabled(self):
+        response = self.client.get(f'/api/books/{self.book.pk}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(f'/api/book-file/{self.book.pk}/', response.data['pdf_file_url'])
+
+    @override_settings(USE_SPACES=True)
+    def test_book_file_endpoint_does_not_redirect_when_spaces_enabled(self):
+        response = self.client.get(
+            f'/api/book-file/{self.book.pk}/',
+            HTTP_RANGE='bytes=0-9',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_206_PARTIAL_CONTENT)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertEqual(response['Accept-Ranges'], 'bytes')

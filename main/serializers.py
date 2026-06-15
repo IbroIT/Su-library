@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.urls import reverse
 from rest_framework import serializers
 
@@ -64,11 +63,7 @@ class BookBaseSerializer(serializers.ModelSerializer):
         if not obj.pdf_file:
             return None
 
-        file_name = obj.pdf_file.name.lower()
-        if not getattr(settings, 'USE_SPACES', False) or file_name.endswith('.zip'):
-            return self._build_book_file_endpoint_url(obj)
-
-        return self._build_absolute_url(obj.pdf_file)
+        return self._build_book_file_endpoint_url(obj)
 
     def get_title(self, obj):
         translation = self._get_translation(obj)

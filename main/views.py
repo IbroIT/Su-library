@@ -2,8 +2,8 @@
 import zipfile
 
 from django.conf import settings
-from django.http import FileResponse, Http404, HttpResponse
-from django.shortcuts import redirect
+from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
+from botocore.exceptions import ClientError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, pagination
 from rest_framework.permissions import AllowAny
@@ -169,6 +169,60 @@ class BookOnlyListAPIView(APIView):
         response['Content-Disposition'] = f'inline; filename="{file_name}"'
         return response
 
+    def _spaces_pdf_response(self, pdf_file, file_name, request):
+        storage = pdf_file.storage
+        connection = getattr(storage, 'connection', None)
+        bucket_name = getattr(storage, 'bucket_name', None)
+        normalize_name = getattr(storage, '_normalize_name', None)
+
+        if connection is None or bucket_name is None or normalize_name is None:
+            return self._pdf_range_response(pdf_file, file_name, request)
+
+        file_size = pdf_file.size
+        range_result = self._parse_range_header(request.headers.get('Range'), file_size)
+        object_key = normalize_name(pdf_file.name)
+        get_object_kwargs = {
+            'Bucket': bucket_name,
+            'Key': object_key,
+        }
+        response_status = 200
+        content_length = file_size
+
+        if range_result is not None:
+            start, end = range_result
+            content_length = end - start + 1
+            response_status = 206
+            get_object_kwargs['Range'] = f'bytes={start}-{end}'
+
+        try:
+            s3_response = connection.meta.client.get_object(**get_object_kwargs)
+        except ClientError as exc:
+            status_code = exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode')
+            if status_code in {404, 416}:
+                raise Http404
+            raise
+
+        streaming_body = s3_response['Body']
+        response = StreamingHttpResponse(
+            streaming_body.iter_chunks(chunk_size=64 * 1024),
+            status=response_status,
+            content_type='application/pdf',
+        )
+        response._resource_closers.append(streaming_body.close)
+        response['Content-Length'] = str(s3_response.get('ContentLength', content_length))
+        response['Cache-Control'] = 'public, max-age=86400'
+        response['Accept-Ranges'] = 'bytes'
+        response['Content-Disposition'] = f'inline; filename="{file_name}"'
+
+        if range_result is not None:
+            start, end = range_result
+            response['Content-Range'] = s3_response.get(
+                'ContentRange',
+                f'bytes {start}-{end}/{file_size}',
+            )
+
+        return response
+
     def get(self, request, pk):
         try:
             book = Book.objects.get(pk=pk, is_active=True)
@@ -182,7 +236,11 @@ class BookOnlyListAPIView(APIView):
 
         if file_name.endswith(".pdf"):
             if settings.USE_SPACES:
-                return redirect(book.pdf_file.url)
+                return self._spaces_pdf_response(
+                    book.pdf_file,
+                    book.pdf_file.name.rsplit('/', 1)[-1],
+                    request,
+                )
 
             return self._pdf_range_response(
                 book.pdf_file,
